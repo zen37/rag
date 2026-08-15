@@ -14,7 +14,7 @@ The platform handles confidential legal material for law firms. The two question
 
 ## Architecture at a glance
 
-![Azure reference architecture for the offshore legal RAG platform](./architecture.png)
+![Azure reference architecture for the offshore legal RAG platform](./docs/architecture.png)
 
 *Request flows top to bottom (users → app → RAG pipeline → managed data); security, governance, and the multi-tenant isolation model run cross-cutting on the right. Editable source: [`architecture.html`](./architecture.html).*
 
