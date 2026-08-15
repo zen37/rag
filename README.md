@@ -1,129 +1,96 @@
+# Offshore Legal RAG Platform
 
-## Requirements
+A retrieval-augmented legal assistant scoped to the laws, orders, and regulations of specific offshore jurisdictions. Structure-aware ingestion, hybrid retrieval, and grounded generative answers with citations back to the source instrument.
 
-1. User enters document id.
-2. Application retrieves all information about the respective id from: ADX(kusto), ITSM, AzureDevOps
-3. If id is mentioned in an incident with severity higher than 4, cache the results, for faster retrieval next time
-4. Log the searches
-
-
-## Technical Architecture
-
-
-### **1. Web Interface (Frontend)**
-
-The web interface will be built to allow users to interact with the system via **natural language queries**. It will allow users to ask questions like “Tell me everything about document ID X,” and receive answers from various sources.
-
-#### Technologies:
-- **Frontend Framework**: 
-  - **React.js** (or **Vue.js** / **Angular**): A modern JavaScript framework to build a **single-page application (SPA)**. React is commonly used for dynamic web applications that provide seamless user experiences.
-  - **TypeScript**: To ensure type safety, which makes the frontend code more robust and maintainable.
-  - **Tailwind CSS**: For efficient and responsive design, enabling a clean, customizable UI.
-  - **Axios** or **Fetch API**: For making HTTP requests from the web page to the backend APIs.
-
-- **User Interaction**:
-  - **Input Field** for natural language queries (e.g., "What do you know about document ID X?")
-  - **Response Display**: The response from the AI system (Azure OpenAI) will be displayed on the webpage in a readable format.
+This document describes the target architecture for taking the platform from a single-user tool to a **multi-tenant commercial product** running on Microsoft Azure.
 
 ---
 
-### **2. Backend (API Layer)**
+## Why Azure
 
-The backend processes the user's query, retrieves data from multiple sources (Kusto, ITSM, ADO, SharePoint, OneNote), and integrates the results before passing them to the AI model (Azure OpenAI) for natural language generation.
-
-#### Technologies:
-- **Backend Framework**: 
-  - **FastAPI** (or **Flask** / **Django**): For a Python-based REST API that can handle incoming queries. **FastAPI** is a modern, high-performance framework for building APIs and is ideal for serving machine learning models and data retrieval operations.
-  - **Python 3.9+**: Python is preferred for its rich ecosystem for working with AI models, databases, and APIs.
-
-- **API Routes**: 
-  - An endpoint `/query` to receive user input and process the query.
-  - The backend will orchestrate the querying of Kusto, ITSM, ADO, and SharePoint data, aggregating the results and sending them to the AI model.
+The platform handles confidential legal material for law firms. The two questions a firm's risk/procurement team will ask on day one are *"where does our data go?"* and *"does anyone train on it?"* — Azure OpenAI answers both cleanly (region-pinned data residency, contractual no-training on customer data, enterprise SLAs), and the rest of the stack sits behind it as managed services. Firms also overwhelmingly run on Microsoft 365, so identity federation is the path of least resistance.
 
 ---
 
-### **3. Data Retrieval Layer**
+## Architecture at a glance
 
-The retrieval layer is responsible for interacting with various data sources, such as **Kusto**, **ITSM**, **ADO**, and **SharePoint/OneNote**, and retrieving relevant information based on the user query.
+![Azure reference architecture for the offshore legal RAG platform](./architecture.png)
 
-#### Technologies:
-- **Kusto (Azure Data Explorer)**: For querying structured data stored in **Kusto tables**.
-  - **Kusto SDK**: Use the **Azure Kusto Python SDK** or **Kusto REST API** to connect to Azure Data Explorer and execute **KQL queries**.
-  - **Azure KQL**: To query the relevant Kusto tables for data about the `document_id`.
-
-- **ITSM (ServiceNow, etc.)**: To retrieve unstructured data from ITSM systems.
-  - **ServiceNow API** or **REST API** to search incidents, problems, or other records where the `document_id` might be mentioned.
-  - Use **full-text search** or **semantic search** capabilities to search through description fields or other text fields in incidents or requests.
-
-- **Azure DevOps (ADO)**: To retrieve work items (e.g., bugs, user stories) mentioning the `document_id`.
-  - **Azure DevOps REST API**: Allows querying work items, commits, pull requests, and other resources where the `document_id` could be mentioned in the title or description.
-  - **Azure DevOps Search** or **Work Item Query Language (WIQL)**: Use these to run queries based on free-text fields.
-
-- **SharePoint and OneNote**: To search for documents or notes that mention the `document_id`.
-  - **Microsoft Graph API**: Provides access to SharePoint and OneNote documents.
-  - **Full-text search**: Can be used to search document libraries, lists, and note contents.
+*Request flows top to bottom (users → app → RAG pipeline → managed data); security, governance, and the multi-tenant isolation model run cross-cutting on the right. Editable source: [`architecture.html`](./architecture.html).*
 
 ---
 
-### **4. AI Model Integration Layer (LangChain + Azure OpenAI)**
+## Component mapping
 
-LangChain simplifies working with large language models (LLMs) like **Azure OpenAI GPT** and handles the orchestration of retrieving and processing data. It enables easy interaction with multiple data sources and helps create a structured approach for **retrieval-augmented generation (RAG)**.
-
-#### Technologies:
-- **LangChain**:
-  - LangChain is used to **integrate external data sources** (like Kusto, ITSM, ADO) with the **Azure OpenAI** model. 
-  - **LangChain’s retrieval system** will allow querying the external sources (Kusto, ITSM, etc.) and then feeding the results into the AI model to generate a natural language response.
-  - **LangChain’s prompt templates** will help structure the input data for the AI model, ensuring the AI generates meaningful and contextually relevant answers.
-  - **Custom Tools**: LangChain can be used to define custom tools (e.g., a custom Kusto query tool, or ITSM query tool) that retrieve data from specific sources, which is then passed to the OpenAI model.
-
-- **Azure OpenAI**:
-  - The **Azure OpenAI GPT model** (or another LLM) will be used for **text generation**.
-  - The model will take in **retrieved data** from Kusto, ITSM, ADO, and SharePoint/OneNote, and generate a response that presents the relevant information to the user.
-  - **Azure Cognitive Services** for Natural Language Processing (NLP) could also be used to enhance query understanding and context extraction.
-
----
-
-### **5. Data Aggregation & Formatting**
-
-Once data is retrieved from various sources, it needs to be aggregated and formatted before being passed to the AI model.
-
-- **Data Normalization**: 
-  - Structured data (from Kusto) is already in a normalized format (e.g., tabular data), but unstructured data (from ITSM, ADO, OneNote) might need some **preprocessing** like **tokenization**, **named entity recognition (NER)**, or **text summarization** to extract the most relevant information.
-  - Use **text cleaning** to remove extraneous data from descriptions, comments, etc., to focus on the `document_id` references.
-
-- **Data Structuring**:
-  - For example, ADO work items might need to be presented as **title**, **status**, **description**, while ITSM incidents may need to show **incident ID**, **title**, and **status**.
+| Concern | Azure service | Notes |
+|---|---|---|
+| Generative answers | **Azure OpenAI** (GPT-4o class) | No training on your data; region-pinnable. The anchor of the stack for a legal product. |
+| Hybrid retrieval | **Azure AI Search** | BM25 keyword + vector in a single query, plus a semantic re-ranker. This *is* your hybrid retrieval — may retire custom retrieval code. |
+| Structure-aware ingestion | **Azure Document Intelligence** | Layout model extracts headings, sections, clauses, and reading order so chunking follows real structural boundaries. |
+| Embeddings | **Azure OpenAI** (embedding model) | Vectorize chunks at ingest time. |
+| Source document store | **Azure Blob Storage** | Raw legal corpus + per-firm uploads. |
+| App state | **Azure Database for PostgreSQL** | Users, chat history, saved citations, per-tenant usage metering, audit log. |
+| UI | **Azure Static Web Apps** | The Claude-style front end. |
+| API / orchestration | **Azure Container Apps** | Scales to zero; less overhead than AKS, more flexibility than App Service. |
+| Identity | **Microsoft Entra ID (External ID)** | SSO, MFA, and federation to each firm's existing M365 tenant. |
+| Secrets | **Azure Key Vault** | No secrets in code or config. |
+| Networking | **Private Endpoints + VNet** | Keep OpenAI / Search / Storage off the public internet. |
+| Governance | **Microsoft Purview** | Classification, retention, clean tenant offboarding. |
+| Observability | **Application Insights / Azure Monitor** | Health, latency, token cost, per-tenant usage analytics. |
 
 ---
 
-### **6. Backend Infrastructure & Security**
+## Multi-tenancy
 
-- **Authentication**: 
-  - Use **OAuth** or **Azure Active Directory** for authenticating users who access the system.
-  - Ensure that sensitive data (e.g., ITSM, ADO) is protected with appropriate access controls and **role-based access control (RBAC)**.
+The single biggest change from personal tool to product. For legal data, tenant isolation is non-negotiable — **Firm A must never retrieve Firm B's uploaded documents.**
 
-- **Cloud Infrastructure**:
-  - The entire system can be hosted on **Azure** using services like **Azure Web Apps** for the frontend and backend APIs, and **Azure Cognitive Services** for the AI model (via **Azure OpenAI**).
-  - **Azure Functions** (optional): Can be used for handling serverless functions like querying databases or running ad-hoc processes (e.g., querying Kusto tables).
+- **Shared** — the jurisdiction corpus (laws, orders, regulations) lives in one shared index. It's the same public legal content for every customer and it's the core value of the product.
+- **Isolated** — anything a firm uploads (memos, matter files, annotations) is scoped to that firm. Preferred approach is **index-per-tenant** in AI Search + a per-tenant Blob container, rather than a single index with tenant-ID filters. Physical isolation is easier to defend in a security questionnaire and gives you a clean per-tenant delete on offboarding.
 
----
-
-### **7. Architecture Flow Summary**
-
-1. **Frontend (React.js)** sends the user's query to the backend API.
-2. **Backend API (FastAPI)** processes the query and determines which data sources to query (Kusto, ITSM, ADO, etc.).
-3. **LangChain** orchestrates the data retrieval from Kusto, ITSM, ADO, and SharePoint using APIs or direct queries.
-4. The retrieved data is aggregated, cleaned, and passed to **Azure OpenAI GPT** through LangChain for **natural language generation**.
-5. **Azure OpenAI** processes the input data and generates a human-readable response.
-6. The response is sent back to the **frontend (React.js)** and displayed to the user in a readable format.
+Every retrieval query is server-side scoped to the caller's tenant; the client never chooses which index it reads.
 
 ---
 
-### **Key Technologies Summary**:
-- **Frontend**: React.js (TypeScript), Tailwind CSS
-- **Backend**: FastAPI (Python), Azure Functions
-- **Data Retrieval**: Azure Kusto SDK, Azure DevOps REST API, ServiceNow API, Microsoft Graph API
-- **AI Integration**: LangChain, Azure OpenAI GPT
-- **Cloud Infrastructure**: Azure Web Apps, Azure Cognitive Services, Azure Active Directory for authentication
+## Groundedness (the part that separates a toy from a legal product)
+
+A lawyer acting on a fabricated citation is a real liability event. Hallucination control is a first-class feature here, not a nice-to-have:
+
+1. **Groundedness detection** — run every answer through **Azure AI Content Safety**'s groundedness API to flag claims not supported by the retrieved passages; suppress or annotate ungrounded output.
+2. **Mandatory inline citations** — every assertion links to the exact source clause it came from, with click-through to the retrieved text. Lawyers should never trust an answer they can't verify against the primary source.
+3. **Full audit trail** — log query, retrieval set, and response for every interaction (debugging + firms will want it).
 
 ---
+
+## Suggested build phases
+
+**Phase 1 — Paid pilot (one firm)**
+Entra sign-in, single shared jurisdiction index, Container Apps API, Azure OpenAI generation with citations + groundedness check, Blob + PostgreSQL, App Insights. No per-tenant uploads yet.
+
+**Phase 2 — Multi-tenant**
+Per-tenant indexes and Blob containers, firm-level admin, usage metering + billing, private endpoints, Purview governance.
+
+**Phase 3 — Scale & harden**
+Provisioned Throughput for OpenAI if load justifies, SSO federation per firm, SOC2-style controls, tenant self-service onboarding/offboarding.
+
+---
+
+## Rough cost shape
+
+At low volume (a handful of firms) the meaningful spend is:
+
+- **Azure OpenAI** — usage-driven (tokens); the main variable cost.
+- **Azure AI Search** — ~$250/mo for a production-tier index, scaling with tenants.
+- Everything else (Container Apps, Static Web Apps, PostgreSQL, storage) is small at pilot scale.
+
+---
+
+## ⚠️ Non-technical gates — resolve before building
+
+These can reshape or kill the product independently of the tech, so treat them as blockers, not footnotes:
+
+1. **Content licensing.** The platform commercially *redistributes* the laws, orders, and regulations of these jurisdictions. Primary legislation is often free to reproduce, but consolidated/annotated versions and official gazettes may be Crown-copyright or licensed. Confirm the right to serve this content for money.
+2. **Professional liability.** Once money changes hands, "helpful side project" becomes "tool firms rely on." Put clear *"not legal advice / verify against source"* terms in place, and get a conversation going about professional-indemnity cover.
+
+---
+
+*Architecture reference — not a commitment to a specific implementation. Service choices (e.g. PostgreSQL vs. Cosmos DB, Container Apps vs. App Service) are starting recommendations, not requirements.*
