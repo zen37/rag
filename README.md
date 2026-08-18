@@ -16,7 +16,7 @@ The platform handles confidential legal material for law firms. The two question
 
 ![Azure reference architecture for the offshore legal RAG platform](./docs/architecture.png)
 
-*Request flows top to bottom (users → app → RAG pipeline → managed data); security, governance, and the multi-tenant isolation model run cross-cutting on the right.*
+*Request flows top to bottom (users → app → RAG pipeline → managed data); security, governance, and the multi-tenant isolation model run cross-cutting on the right. The bottom band shows the controls that keep data confidential from the cloud provider (see Data security & confidentiality).*
 
 ---
 
@@ -61,6 +61,29 @@ A lawyer acting on a fabricated citation is a real liability event. Hallucinatio
 
 ---
 
+## Data security & confidentiality
+
+The platform holds privileged legal material, so *"can the cloud provider read our clients' data?"* is a first-order question. The realistic target is not a mathematical guarantee against a determined provider (only self-hosting achieves that, at a cost usually worse than the risk) but **reasonable, layered safeguards that satisfy professional confidentiality obligations.** By default Microsoft engineers have *no* standing access to customer data — data at rest is encrypted, and any support-time access is just-in-time, time-boxed, and logged. The controls below close the remaining gaps, at rest, in use, and during support (they map to the bottom band of the architecture diagram).
+
+**1. Customer Lockbox — control support access.**
+Turned on, Customer Lockbox puts *us* in the approval loop: if a Microsoft engineer ever needs access to our data to service a support ticket, the request is blocked until we explicitly approve it, and every request is logged. Without approval, no access.
+
+**2. Customer-Managed Keys (CMK) — hold our own keys (protects data at rest).**
+Instead of Microsoft-managed encryption keys, encrypt data at rest with keys we generate and control in **Azure Key Vault Managed HSM** (FIPS 140-3 Level 3; key material is non-exportable, even by Microsoft). Disable or revoke the key and the data is unreadable to everyone, including Microsoft. Applies to Blob Storage, Azure AI Search, Azure Database for PostgreSQL, and Azure OpenAI stored data.
+
+**3. Confidential Computing — protect data in use (the RAG-specific gap).**
+Encryption at rest protects data while stored, but to index, embed, search, and generate, the data must be *decrypted in memory* — that in-use moment is the real exposure. Run the orchestration and inference path on **confidential VMs / containers** (AMD SEV-SNP / Intel TDX) and **confidential GPUs** (NVIDIA H100), optionally via **Azure AI confidential inferencing**, so memory stays hardware-encrypted and attested even from the host hypervisor and Microsoft operators.
+
+**4. Client-side encryption — strongest, but limited here.**
+Encrypting data before it reaches Azure means the provider only ever sees ciphertext — but you cannot search, embed, or retrieve over ciphertext, so this only fits cold storage of un-indexed uploads, not the live searchable corpus. Noted for completeness; not a general solution for a RAG system.
+
+**Contractual layer.**
+Pair the technical controls with the **Data Processing Agreement**: Azure OpenAI contractually commits to *not* training on customer data; pin **data residency** to the required region; and document access terms. Give each firm a short **security one-pager** describing exactly these controls — *"how do we know Microsoft can't read our clients' files?"* is the first question a firm's risk partner will ask.
+
+**Recommended baseline for this product:** Customer Lockbox **on** + CMK backed by **Managed HSM** + **Confidential Computing** on the processing/inference path + full audit logging. Net effect: Microsoft cannot read the data at rest without our keys, cannot access it in memory during processing, and cannot obtain support access without our sign-off — stronger than what most firms' own on-prem servers achieve.
+
+---
+
 ## Suggested build phases
 
 **Phase 1 — Paid pilot (one firm)**
@@ -70,7 +93,7 @@ Entra sign-in, single shared jurisdiction index, Container Apps API, Azure OpenA
 Per-tenant indexes and Blob containers, firm-level admin, usage metering + billing, private endpoints, Purview governance.
 
 **Phase 3 — Scale & harden**
-Provisioned Throughput for OpenAI if load justifies, SSO federation per firm, SOC2-style controls, tenant self-service onboarding/offboarding.
+Provisioned Throughput for OpenAI if load justifies, SSO federation per firm, SOC2-style controls, tenant self-service onboarding/offboarding. Turn on the full confidentiality baseline (Customer Lockbox, CMK/Managed HSM, Confidential Computing) here if not sooner.
 
 ---
 
@@ -81,6 +104,8 @@ At low volume (a handful of firms) the meaningful spend is:
 - **Azure OpenAI** — usage-driven (tokens); the main variable cost.
 - **Azure AI Search** — ~$250/mo for a production-tier index, scaling with tenants.
 - Everything else (Container Apps, Static Web Apps, PostgreSQL, storage) is small at pilot scale.
+
+Note: **Managed HSM** and **Confidential Computing** carry a premium (dedicated HSM pool; confidential-GPU SKUs cost more than standard) — factor these in when the confidentiality baseline is switched on.
 
 ---
 
