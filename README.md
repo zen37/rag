@@ -1,4 +1,4 @@
-# Offshore Legal RAG Platform
+# Legal RAG Platform
 
 A retrieval-augmented legal assistant scoped to the laws, orders, and regulations of specific offshore jurisdictions. Structure-aware ingestion, hybrid retrieval, and grounded generative answers with citations back to the source instrument.
 
